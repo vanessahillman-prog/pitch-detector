@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pitch Detector</title>
+  <script src="https://unpkg.com/pitchfinder@latest/dist/pitchfinder.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background-color: #f0f8ff;
+    }
+    button {
+      padding: 14px 28px;
+      font-size: 20px;
+      margin-bottom: 20px;
+      cursor: pointer;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+    }
+    #note {
+      font-size: 60px;
+      font-weight: bold;
+      margin: 10px 0;
+      color: gray;
+    }
+    #status {
+      font-size: 24px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <button id="start">Start Singing</button>
+  <div id="note">--</div>
+  <div id="status">Status: --</div>
+
+  <script>
+    const startButton = document.getElementById('start');
+    const noteDisplay = document.getElementById('note');
+    const statusDisplay = document.getElementById('status');
+
+    function frequencyToNote(freq) {
+      if (!freq) return "--";
+      const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+      const A4 = 440;
+      const semitones = Math.round(12 * Math.log2(freq / A4));
+      const noteIndex = (semitones + 69) % 12;
+      const octave = Math.floor((semitones + 69) / 12);
+      return noteNames[noteIndex] + octave;
+    }
+
+    let recentPitches = [];
+    function smoothPitch(freq) {
+      if (!freq) return null;
+      recentPitches.push(freq);
+      if (recentPitches.length > 5) recentPitches.shift();
+      return recentPitches.reduce((a,b) => a+b,0) / recentPitches.length;
+    }
+
+    function getFeedback(freq, targetFreq) {
+      if (!freq || !targetFreq) return "Keep singing!";
+      const cents = 1200 * Math.log2(freq / targetFreq);
+      if (Math.abs(cents) <= 10) return "In tune! 🎵";
+      else if (cents > 0) return "Slightly sharp ↑";
+      else return "Slightly flat ↓";
+    }
+
+    startButton.addEventListener('click', async () => {
+      startButton.disabled = true;
+
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+
+        const detectPitch = Pitchfinder.YIN({ sampleRate: audioContext.sampleRate });
+        const buffer = new Float32Array(analyser.fftSize);
+        const targetFreq = 440;
+
+        function update() {
+          analyser.getFloatTimeDomainData(buffer);
+          let freq = detectPitch(buffer);
+          freq = smoothPitch(freq);
+
+          if (freq) {
+            const note = frequencyToNote(freq);
+            noteDisplay.textContent = note;
+            statusDisplay.textContent = getFeedback(freq, targetFreq);
+            const cents = 1200 * Math.log2(freq / targetFreq);
+            if (Math.abs(cents) <= 10) noteDisplay.style.color = "green";
+            else if (cents > 0) noteDisplay.style.color = "orange";
+            else noteDisplay.style.color = "red";
+          }
+
+          requestAnimationFrame(update);
+        }
+        update();
+      } catch (err) {
+        alert("Microphone access denied. Please allow microphone and reload.");
+        startButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
